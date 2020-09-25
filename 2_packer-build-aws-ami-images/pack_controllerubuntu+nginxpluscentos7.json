@@ -1,0 +1,419 @@
+{
+  "description": "Create an NGINX Controller image",
+  
+  
+  "variables": {
+    "home": "{{env `HOME`}}",
+	"aws_access_key_id": "{{env `AWS_ACCESS_KEY_ID`}}",
+	"aws_secret_access_key": "{{env `AWS_SECRET_ACCESS_KEY`}}",
+	"aws_session_token": "{{env `AWS_SESSION_TOKEN`}}",
+
+    "region": "ap-south-1"
+
+	
+  },
+  
+ 
+  
+  "builders": [
+    {
+      "type": "amazon-ebs",  	  
+      "security_group_id" : "sg-011f11b82770c23fd",
+	  "associate_public_ip_address": true,
+	  "subnet_id" : "subnet-01261841160d8580b",
+	  
+	  
+      "name": "workshop0001-nginx-controller",
+      "ami_name": "workshop0001-nginx-controller-Mumbai {{isotime \"2006-01-02\"}} {{uuid}}",
+      "instance_type": "t2.2xlarge",
+      "region": "{{user `region`}}",
+      "source_ami": "ami-0620d12a9cf777c87",
+      "ssh_username": "ubuntu",
+      "access_key": "{{user `aws_access_key`}}",
+      "secret_key": "{{user `aws_secret_key`}}",
+
+        "ami_block_device_mappings": [ {
+            "device_name": "/dev/sda1",
+            "volume_size": 16,
+            "delete_on_termination": true
+        } ],
+        "launch_block_device_mappings": [ {
+            "device_name": "/dev/sda1",
+            "volume_size": 16,
+            "delete_on_termination": true
+        } ],
+	  
+	  
+      "tags": {
+        "Name": "workshop0001-nginx-controller-Mumbai"
+      }
+	}, 
+	  
+    {
+      "type": "amazon-ebs",
+      "name": "workshop0001-ngx-plus",
+      "ami_name": "workshop0001-nginx-plus-Mumbai {{isotime \"2006-01-02\"}} {{uuid}}",
+      "instance_type": "t2.micro",
+      "region": "{{user `region`}}",
+      "source_ami": "ami-0dd861ee19fd50a16",
+      "ssh_username": "centos",
+      "access_key": "{{user `aws_access_key`}}",
+      "secret_key": "{{user `aws_secret_key`}}",
+      "tags": {
+        "Name": "workshop0001-ngx-plus-Mumbai"
+      }
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "file",
+      "source": "{{user `home`}}/.ssh/ngx-certs",
+      "destination": "~/.ssh/ngx-certs",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "install-controller.sh",
+      "destination": "~/install-controller.sh",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+
+    {
+      "type": "file",
+      "source": "../certs/workshop0001.nginxdemo.net.crt.pem",
+      "destination": "controller.crt",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "../certs/workshop0001.nginxdemo.net.key.pem",
+      "destination": "controller.key",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "../certs/workshop0001.nginxdemo.net.issuer.pem",
+      "destination": "issuer.pem",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+
+    {
+      "type": "file",
+      "source": "nginx_controller_deploy_license.yaml",
+      "destination": "~/nginx_controller_deploy_license.yaml",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "license.txt",
+      "destination": "license.txt",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "configure_me_here.yaml",
+      "destination": "configure_me_here.yaml",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+   {
+      "type": "shell",
+      "inline": [
+	    "ifconfig",
+		"cat /etc/netplan/50-cloud-init.yaml",
+		"echo -n `env | grep SSH_CONNECTION | cut -d \" \" -f 3`>private_ip.txt",
+		"echo `env | grep SSH_CONNECTION | cut -d \" \" -f 3`"
+
+      ],
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "private_ip.txt",
+      "destination": "../3_terraform-deploy-platform/private_ip.txt",
+	  "direction" : "download",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+	
+   {
+      "type": "shell",
+      "inline": [
+	 
+		"#sudo cp 50-cloud-init.yaml /etc/netplan/50-cloud-init.yaml",
+		"#sudo netplan apply",
+	    "sudo apt-get install unzip -y",
+	    "curl 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o 'awscliv2.zip'",
+        "unzip awscliv2.zip",
+        "sudo ./aws/install",
+	    "aws --version",
+		"echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections",
+        "until sudo apt-get update; do echo 'Trying APT update again....'; done",
+        "until sudo apt-get install python-pip jq apt-transport-https ca-certificates curl software-properties-common socat -y; do echo 'Trying APT again....'; sudo apt-get update; done",
+        "until sudo -H pip install ansible; do echo 'Trying to install ansible again...'; done",
+		"#sudo -i snap install jq",
+		"until sudo -H apt-get install conntrack; do echo 'Trying to conntrack ansible again...'; done"
+      ],
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },	
+	
+    {
+      "type": "shell",
+      "inline": [
+		"ssh-keygen -f /tmp/sshkey -q -N ''",
+		"chmod +r /tmp/sshkey",
+		"echo 'Downloading the Controller installer tarball....'",
+		"#wget -q https://sll-nginx-workshop-demo-eu-west-1.s3-eu-west-1.amazonaws.com/app_centric_automation/controller-installer-3.3.0.tar.gz",
+		"#wget -q https://emea-terraform-and-packer.s3.eu-west-2.amazonaws.com/controller-installer-3.4.0.tar.gz",
+		"#wget -q https://emea-terraform-and-packer.s3.eu-west-2.amazonaws.com/controller-installer-latest.tar.gz",
+		"wget -q https://emea-terraform-and-packer.s3.eu-west-2.amazonaws.com/controller-installer-latest.tar.gz",
+		"tar -xvf controller-installer-latest.tar.gz",
+		"rm controller-installer-latest.tar.gz"
+      ],
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+	
+	
+
+    {
+      "type": "file",
+      "source": "update_DNS_record_at_AWS_for_controller_cert.yaml",
+      "destination": "update_DNS_record_at_AWS_for_controller_cert.yaml",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+
+
+    {
+      "type": "file",
+      "source": "remove_DNS_record_at_AWS.yaml",
+      "destination": "remove_DNS_record_at_AWS.yaml",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+
+
+	{
+      "type": "shell",
+        "environment_vars" : [ "AWS_ACCESS_KEY_ID={{ user `aws_access_key_id` }}",
+                               "AWS_SECRET_ACCESS_KEY={{ user `aws_secret_access_key` }}",
+							   "AWS_SESSION_TOKEN={{ user `aws_session_token` }}"
+		],
+        "inline": [
+		"#env",
+
+		"#aws configure list-profiles",
+	    "sudo apt-get install python-boto -y",
+		"ansible-playbook -vvv update_DNS_record_at_AWS_for_controller_cert.yaml"
+      ],
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },	
+
+	{
+      "type": "shell",
+      "inline": [
+	    "cat  controller.crt issuer.pem >fullchain.pem",
+		"echo 'Using the following certificate for controller................'",
+		"more fullchain.pem",
+		"sh ./install-controller.sh"
+      ],
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },		
+	
+	{
+      "type": "shell",
+        "environment_vars" : [ "AWS_ACCESS_KEY_ID={{ user `aws_access_key_id` }}",
+                               "AWS_SECRET_ACCESS_KEY={{ user `aws_secret_access_key` }}",
+							   "AWS_SESSION_TOKEN={{ user `aws_session_token` }}"
+		],
+        "inline": [
+		"#env",
+
+		"#aws configure list-profiles",
+	    "sudo apt-get install python-boto -y",
+		"ansible-playbook -vvv remove_DNS_record_at_AWS.yaml"
+      ],
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },	
+	
+   {
+      "type": "file",
+      "destination": "{{user `home`}}/.ssh/AWS-Mumbai/controller-key.pub",
+      "source": "/tmp/sshkey.pub",
+	  "direction" : "download",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+   {
+      "type": "file",
+      "destination": "{{user `home`}}/.ssh/AWS-Mumbai/controller-key.pem",
+      "source": "/tmp/sshkey",
+	  "direction" : "download",
+      "only": [
+        "workshop0001-nginx-controller"
+      ]
+    },
+	
+	
+
+
+    {
+      "type": "file",
+      "source": "{{user `home`}}/.ssh/ngx-certs",
+      "destination": "~/.ssh/ngx-certs",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "connect_nginx_server_to_controller.yaml",
+      "destination": "connect_nginx_server_to_controller.yaml",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "configure_me_here.yaml",
+      "destination": "configure_me_here.yaml",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+    {
+      "type": "shell",
+      "inline": [
+        "#sudo -H apt-get update -y",
+	"#sudo -H apt-get upgrade -y",
+        "#sudo -H apt-get update -y",
+        "#sudo -H apt-get install -y python-pip",
+        "#sudo -H pip install ansible",
+	"#sudo yum install python3 -y",
+	"#sudo yum install python3-pip -y",
+	"#pip3 install ansible --user",
+	"sudo yum install epel-release -y",
+	"sudo yum install ansible -y",
+        "sudo yum install python2 -y",
+	"sudo sed -i --follow-symlinks 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/sysconfig/selinux",
+	"ssh-keygen -f /tmp/sshkey -q -N ''",
+		"chmod +r /tmp/sshkey"
+      ],
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+   {
+      "type": "file",
+      "destination": "{{user `home`}}/.ssh/AWS-Mumbai/nginx-server-key.pub",
+      "source": "/tmp/sshkey.pub",
+	  "direction" : "download",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+   {
+      "type": "file",
+      "destination": "{{user `home`}}/.ssh/AWS-Mumbai/nginx-server-key.pem",
+      "source": "/tmp/sshkey",
+	  "direction" : "download",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },		
+    {
+      "type": "ansible-local",
+      "galaxy_file": "requirements.yml",
+      "playbook_file": "playbook-lb.yml",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+	
+    {
+      "type": "shell",
+      "inline": [
+        "#sudo -H apt update -y",
+        "#sudo -H apt update -y",
+        "sudo yum install nginx-plus-module-njs -y",
+	"#sudo apt upgrade -y"
+      ],
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },	
+	
+		
+	
+    {
+      "type": "shell",
+      "script": "setup-instance.sh",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+    {
+      "type": "shell",
+      "script": "setup_cheese_endpoint.sh",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+    {
+      "type": "file",
+      "source": "html/",
+      "destination": "~",
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    },
+    {
+      "type": "shell",
+      "inline": [
+	    "sudo cp ~/index.html /usr/share/nginx/html/",
+		"sudo cp ~/js.cookie.js /usr/share/nginx/html/"
+		],
+      "only": [
+        "workshop0001-ngx-plus"
+      ]
+    }	
+	
+	
+	
+	
+	
+	
+	
+  ]
+}

@@ -1,0 +1,45 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+
+
+
+  tasks:
+
+# Gather IP facts from ipify.org
+    - name: Get my public IP
+      ipify_facts:
+
+# Set the current public IP address as a facts
+
+    - name: Establish the current Public IP address as a fact
+      set_fact:
+        nginx_controller_public_ip: "{{ ipify_public_ip }}" 
+
+
+#      uri:
+
+#    - name: Add Zone to Controller AWS DNS record
+
+# Add new zone workshop0001.nginxdemo.net to the nginxdemo.net domain
+
+#      route-53:
+#          state: present
+#          zone: nginxdemo.net
+#          wait: yes
+
+
+
+    - name: Update Controller AWS DNS record
+
+# Add new.foo.com as an A record with 3 IPs and wait until the changes have been replicated
+      route53:
+          state: present
+          zone: nginxdemo.net
+          record: controller.workshop0001.nginxdemo.net
+          type: A
+          ttl: 7200
+          overwrite: true
+          value: "{{ nginx_controller_public_ip }}"
+          wait: yes

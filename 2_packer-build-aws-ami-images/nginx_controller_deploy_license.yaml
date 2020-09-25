@@ -1,0 +1,58 @@
+
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars_files: configure_me_here.yaml
+
+  tasks:
+
+    - name: Log into NGINX Controller
+      uri:
+        url: https://{{ fqdn }}/api/v1/platform/login
+        method: POST
+        body_format: json
+        body:
+          credentials:
+            type: BASIC
+            username: "{{ user_email }}"
+            password: "{{ user_password }}"
+        return_content: yes
+        status_code: 204
+        validate_certs: false
+      register: login_result
+      until: login_result is not failed
+      retries: 1000
+
+
+    - name: Store session cookie as fact
+      set_fact:
+        nginx_controller_session: "{{ login_result }}"
+
+    - name: POST NGINX Controller license
+      uri:
+        url: "https://{{ fqdn }}/api/v1/platform/license-file"
+        method: POST
+        body:
+          content: "{{ nginx_controller_license }}"
+        body_format: json
+        return_content: true
+        status_code: 200
+        validate_certs: true
+        headers:
+         Cookie: "{{nginx_controller_session.set_cookie }}"
+      register: nginx_controller_response
+
+
+
+    - name: GET NGINX Controller license status
+      uri:
+        url: "https://{{ fqdn }}/api/v1/platform/license"
+        method: GET
+        headers:
+          Cookie: "{{ nginx_controller_session.set_cookie }}"
+        status_code: 200
+        validate_certs: false
+      register: controller_license
+

@@ -1,0 +1,427 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+
+    controller_auth_user: "a.user@f5.com"
+    controller_auth_password: "Password1"
+    controller_domain_name: "controller.workshop0001.nginxdemo.net"
+    controller_api_version: "v1"
+
+    controller_user_request_body:
+      username: "a.userf5.com"
+      password: "Password1"
+
+    gateway1_target_ip:   10.0.1.20
+    gateway2_target_ip:   10.0.1.30      
+    apibackend_target_ip: 10.0.1.90  
+
+    typeStr: ",type: INLINE"    
+    
+    
+    jwkString: "{{lookup('url','https://www.googleapis.com/oauth2/v3/certs', split_lines=false )}}"
+    typeString: ",type: INLINE"
+    submitString: "{{ jwkString + typeString }}"
+
+  tasks:
+      
+
+    - name: Log into NGINX Controller
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/platform/login
+        method: POST
+        body_format: json 
+        body: 
+          credentials: 
+            type: "BASIC"
+            username: "{{ controller_auth_user }}"
+            password: "{{ controller_auth_password }}"
+        status_code: 204
+        validate_certs: false
+      register: session
+
+    - name: Store session cookie as fact
+      set_fact:
+        nginx_controller_session: "{{ session }}"
+
+
+    - name: Work out which of the three instantiated NGINX instances are destined to be gateway 1, gateway2 and the apibackend
+      uri:
+        url: https://{{ controller_domain_name }}/api/v1/infrastructure/locations/unspecified/instances
+        method: GET
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:
+        status_code: 200
+        validate_certs: false
+      register: instances
+      
+    - name: Store the list of instances as a fact
+      set_fact:
+        nginx_server_instances: "{{ instances }}"
+
+    - name: Debugging info 1
+      debug:
+        msg: "Instance IP address: {{ nginx_server_instances.json['items'][0].currentStatus.legacySystemMetadata.network.interfaces[1].ipv4.address}} has instance ID: {{ nginx_server_instances.json['items'][0].metadata.name}}"
+        
+    - name: Debugging info 1
+      debug:        
+        msg: "Instance IP address: {{ nginx_server_instances.json['items'][1].currentStatus.legacySystemMetadata.network.interfaces[1].ipv4.address}} has instance ID: {{ nginx_server_instances.json['items'][1].metadata.name}}"
+        
+    - name: Debugging info 1
+      debug:
+        msg: "Instance IP address: {{ nginx_server_instances.json['items'][2].currentStatus.legacySystemMetadata.network.interfaces[1].ipv4.address}} has instance ID: {{ nginx_server_instances.json['items'][2].metadata.name}}"
+        
+        
+    - name: get Instance ID for gateway1 which is getting DNS resolution from cheese-staging.nginxplus.net
+      set_fact:
+        gateway1_instance_id: "{{ nginx_server_instances.json|json_query('items[?currentStatus.legacySystemMetadata.network.interfaces[1].ipv4.address == `{}`]|[0].metadata.name'.format(gateway1_target_ip)) }}"
+
+    - name: get Instance ID for gateway2 which is getting DNS resolution from cheese.nginxplus.net
+      set_fact:
+        gateway2_instance_id: "{{ nginx_server_instances.json|json_query('items[?currentStatus.legacySystemMetadata.network.interfaces[1].ipv4.address == `{}`]|[0].metadata.name'.format(gateway2_target_ip)) }}"
+
+    - name: get Instance ID for api backend which is getting DNS resolution from apibackend.nginxplus.net
+      set_fact:
+        apibackend_instance_id: "{{ nginx_server_instances.json|json_query('items[?currentStatus.legacySystemMetadata.network.interfaces[1].ipv4.address == `{}`]|[0].metadata.name'.format(apibackend_target_ip)) }}"
+
+
+    - debug:
+        var: gateway1_instance_id, gateway2_instance_id, apibackend_instance_id
+
+
+    - name: Give the NGINX server 10.0.1.20 a nice working name - NGINX Plus API Gateway 1
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/infrastructure/locations/unspecified/instances/{{gateway1_instance_id}}
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:          
+            metadata:
+              name: "{{gateway1_instance_id}}"
+              displayName: "NGINX Plus API Gateway 1"
+              links:
+                rel: "/api/v1/infrastructure/locations/unspecified/instances/{{gateway1_instance_id}}"
+        status_code: 200,201,202
+        validate_certs: false     
+
+    - name: Give the NGINX server 10.0.1.30 a nice working name - NGINX Plus API Gateway 2
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/infrastructure/locations/unspecified/instances/{{gateway2_instance_id}}
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:          
+            metadata:
+              name: "{{gateway2_instance_id}}"
+              displayName: "NGINX Plus API Gateway 2"
+              links:
+                rel: "/api/v1/infrastructure/locations/unspecified/instances/{{gateway2_instance_id}}"
+        status_code: 200,201,202
+        validate_certs: false     
+
+    - name: Give the NGINX server 10.0.1.90 a nice working name - NGINX Plus API Backend
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/infrastructure/locations/unspecified/instances/{{apibackend_instance_id}}
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:          
+            metadata:
+              name: "{{apibackend_instance_id}}"
+              displayName: "NGINX Plus API Backend"
+              links:
+                rel: "/api/v1/infrastructure/locations/unspecified/instances/{{apibackend_instance_id}}"
+        status_code: 200,201,202
+        validate_certs: false     
+
+
+
+    - name: Create Production Environment
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/services/environments/production
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:
+          metadata:
+            name: production
+            displayName: Production
+            description: 'Production Platform for Cheese Application'
+            tags: []
+          desiredState: {}
+        status_code: 200,201
+        validate_certs: false
+
+
+    - name: Install Production Certificate
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/services/environments/production/certs
+        method: POST
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:
+          metadata:
+            name: workshop0001.nginxdemo.net
+            displayName: workshop0001.nginxdemo.net Wildcard Certificate
+            description: All domains residing in *.workshop0001.nginxdemo.net
+          desiredState:
+            type: PEM
+            privateKey: "{{ lookup('file','~/NGINX_API_Automation/certs/workshop0001.nginxdemo.net.key.pem') }}"
+            publicCert: "{{ lookup('file','~/NGINX_API_Automation/certs/workshop0001.nginxdemo.net.crt.pem') }}"
+            password: ''
+            caCerts:
+            - "{{ lookup('file','~/NGINX_API_Automation/certs/workshop0001.nginxdemo.net.issuer.pem') }}"
+        status_code: 201,409
+        validate_certs: false
+
+
+    - name: Update Production Gateway
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/services/environments/production/gateways/cheeseproductiongateway
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:
+          metadata:
+            name: cheeseproductiongateway
+            displayName: Production Cheese Gateway
+            description: Production platform for Cheese API
+          desiredState:
+            ingress:
+              uris:
+                https://cheese-staging.workshop0001.nginxdemo.net: {}
+              placement:
+                instanceRefs:
+                - ref: "/infrastructure/locations/unspecified/instances/{{gateway2_instance_id}}"
+              tls:
+                certRef:
+                  ref: "/services/environments/production/certs/workshop0001.nginxdemo.net"
+                preferServerCipher: DISABLED
+                sessionCache: 'OFF'
+        status_code: 201,202,409
+        validate_certs: false
+
+        
+    - name: Production - Create Cheese Application
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/services/environments/production/apps
+        method: POST
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:
+          metadata:
+            name: productioncheese
+            displayName: Cheese Finder Application - Production
+            description: An Application to provide detailled data on cheeses from around the world
+            tags:
+            - nibbles
+        status_code: 201,409
+        validate_certs: false
+
+
+
+    - name: Production - Publish Cheese API towards the Cheese Application
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/services/environments/production/apps/productioncheese/published-apis/cheeseprod
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:
+          metadata:
+            name: cheeseprod
+            displayName: Production Cheese
+            tags: []
+          desiredState:
+            apiDefinitionVersionRef:
+              ref: "/services/api-definitions/cheesevtwo/versions/v1"
+            gatewayRefs:
+            - ref: "/services/environments/production/gateways/cheeseproductiongateway"
+        status_code: 200,201,202
+        validate_certs: false
+
+
+    - name: Download the latest Google Oauth Public Key file JWK
+    
+      set_fact:
+       jwkObject: "{{lookup('url','https://www.googleapis.com/oauth2/v3/certs', split_lines=false )}}"
+
+    - name: Add the key/value pair type:INLINE into the Public Key so that it's in the correct format to push towards the Controller API 
+    
+      set_fact:
+        #imported_var: "{{ jwkObject.content|b64decode|from_json | default([]) | combine({ 'type': 'INLINE' }) }}"
+        imported_var: "{{ jwkObject | default([]) | combine({ 'type': 'INLINE' }) }}"
+
+
+
+    - name: Create a new Security Group for JWT
+    
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/security/identity-providers/cheese-jwt-security2
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:          
+
+          metadata:
+            name: cheese-jwt-security2
+            displayName: Cheese JWT security (Google API)
+            description: This App Component provides a secure JWC capabilities to the site
+            tags: []
+          desiredState:
+            environmentRefs:
+            - ref: "/services/environments/production"
+            identityProvider:
+              type: JWT
+              jwkFile: "{{ imported_var }}"
+                
+
+        status_code: 200,201,202
+        validate_certs: false
+    
+
+    - name: Production - Create an App component to link the Cheese API to the Cheese Application
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/services/environments/production/apps/productioncheese/components/cheeses
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:          
+          metadata:
+            createTime: '2020-08-13T15:52:54Z'
+            kind: components
+            name: cheeses
+            uid: 8f297954-212b-41da-9de6-5f58d37ccd6d
+            updateTime: '2020-08-14T11:52:26Z'
+          desiredState:
+            backend:
+              ntlmAuthentication: DISABLED
+              preserveHostHeader: DISABLED
+              workloadGroups:
+                cheesebackend:
+                  locationRefs:
+                  - links:
+                      rel: "/api/v1/infrastructure/locations/unspecified"
+                      displayName: Unspecified (default)
+                      name: unspecified
+                    ref: "/infrastructure/locations/unspecified"
+                  uris:
+                    http://10.0.1.90:8088:
+                      isBackup: false
+                      isDown: false
+                      isDrain: false
+            ingress:
+              uris:
+              
+                "/beemster":
+                  matchMethod: EXACT
+                "/cheddar":
+                  matchMethod: EXACT
+                "/emmental":
+                  matchMethod: EXACT
+                "/gouda":
+                  matchMethod: EXACT
+                "/wensleydale":
+                  matchMethod: EXACT
+              gatewayRefs:
+              - ref: "/services/environments/production/gateways/cheeseproductiongateway"
+            logging:
+              accessLog:
+                state: DISABLED
+              errorLog: DISABLED
+            publishedApiRefs:
+            - ref: "/services/environments/production/apps/productioncheese/published-apis/cheeseprod"
+            security:
+              jwtClientAuth:
+                key: auth_token
+                keyLocation: COOKIE
+              identityProviderRefs:
+              - ref: "/security/identity-providers/cheese-jwt-security2"
+              rateLimits:
+                policy_1:
+                  key: "$http_x_real_ip-$request_uri"
+                  rate: 1r/s
+                  statusCode: 429
+            programmability:
+              uriRewrites:
+              - incomingPattern: "^/api/v1(.*)$"
+                rewritePattern: "$1"
+
+
+        status_code: 200,201,202
+        validate_certs: false
+
+    - name: Production - Create an App component to allow open access to the Google Login page
+      uri:
+        url: https://{{ controller_domain_name }}/api/{{ controller_api_version }}/services/environments/production/apps/productioncheese/components/loginpage
+        method: PUT
+        headers:
+          Cookie: "{{ session.set_cookie }}"
+        body_format: json
+        body:          
+          metadata:
+            createTime: '2020-08-13T15:52:54Z'
+            kind: components
+            name: loginpage
+          desiredState:
+            backend:
+              ntlmAuthentication: DISABLED
+              preserveHostHeader: DISABLED
+              workloadGroups:
+                cheesebackend:
+                  locationRefs:
+                  - links:
+                      rel: "/api/v1/infrastructure/locations/unspecified"
+                      displayName: Unspecified (default)
+                      name: unspecified
+                    ref: "/infrastructure/locations/unspecified"
+                  uris:
+                    http://10.0.1.90:8088:
+                      isBackup: false
+                      isDown: false
+                      isDrain: false
+            ingress:
+              uris:
+              
+                "/index.html":
+                  matchMethod: EXACT
+                "/js.cookie.js":
+                  matchMethod: EXACT
+
+              gatewayRefs:
+              - ref: "/services/environments/production/gateways/cheeseproductiongateway"
+            logging:
+              accessLog:
+                state: DISABLED
+              errorLog: DISABLED
+            publishedApiRefs:
+            - ref: "/services/environments/production/apps/productioncheese/published-apis/cheeseprod"
+            security:
+
+              rateLimits:
+                policy_1:
+                  key: "$http_x_real_ip-$request_uri"
+                  rate: 1r/s
+                  statusCode: 429
+            programmability:
+              uriRewrites:
+              - incomingPattern: "^/api/v1(.*)$"
+                rewritePattern: "$1"
+
+
+        status_code: 200,201,202
+        validate_certs: false
+

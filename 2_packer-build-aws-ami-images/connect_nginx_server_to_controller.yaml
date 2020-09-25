@@ -1,0 +1,74 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars_files: configure_me_here.yaml
+
+
+  tasks:
+
+
+    - name: Log into NGINX Controller
+      uri:
+        url: https://{{ fqdn }}/api/v1/platform/login
+        method: POST
+        body_format: json
+        body:
+          credentials:
+            type: BASIC
+            username: "{{ user_email }}"
+            password: "{{ user_password }}"
+        return_content: yes
+        status_code: 204
+        validate_certs: false
+      register: login_result
+      until: login_result is not failed
+      retries: 1000
+
+
+    - name: Store session cookie as fact
+      set_fact:
+        nginx_controller_session: "{{ login_result }}"
+
+
+    - name: Find the API key, this will be used to join our NGINX sever with NGINX Controller
+      uri:
+        url: "https://{{ fqdn }}/api/v1/platform/global"
+        method: "GET"
+        return_content: yes
+        status_code: 200
+        validate_certs: false
+        headers:
+          Cookie: "{{nginx_controller_session.set_cookie}}"
+      register: ctrl_globals
+
+    - name: Store API KEY as a fact
+      set_fact:
+        nginx_controller_API_key: "{{ctrl_globals.json.currentStatus.agentSettings.apiKey}}"
+
+
+
+
+    - name: Download the controller-agent installer package directly from NGINX Controller
+      uri:
+        url: https://{{ fqdn }}:8443/1.4/install/controller/
+        method: GET
+        body_format: raw
+        return_content: yes
+        status_code: 200
+        validate_certs: false
+      register: installer_script
+      until: installer_script is not failed
+      retries: 1000
+
+ 
+ 
+    - local_action: copy content={{ installer_script.content }} dest=install.sh
+
+
+    - name: Install the NGINX Controller Agent and register with Controller
+      shell: API_KEY={{  nginx_controller_API_key|quote  }} sh ./install.sh -y
+      register: install_agent_output
+      until: install_agent_output is not failed
+      retries: 1000

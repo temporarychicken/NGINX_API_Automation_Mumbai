@@ -1,0 +1,32 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+
+
+
+  tasks:
+
+# Gather IP facts from ipify.org
+    - name: Get my public IP
+      ipify_facts:
+
+# Set the current public IP address as a facts
+
+    - name: Establish the current Public IP address as a fact
+      set_fact:
+        nginx_controller_public_ip: "{{ ipify_public_ip }}" 
+
+    - name: Delete Controller AWS DNS record
+
+
+# REmove new.foo.com as an A record with 3 IPs and wait until the changes have been replicated
+      route53:
+          state: absent
+          zone: nginxdemo.net
+          record: controller.workshop0001.nginxdemo.net
+          type: A
+          ttl: 7200
+          overwrite: true
+          value: "{{ nginx_controller_public_ip }}"
+          wait: yes
